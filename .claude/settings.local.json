@@ -19,7 +19,11 @@
       "Bash(git init:*)",
       "Bash(git add:*)",
       "Bash(git remote add:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(timeout:*)",
+      "Bash(PORT=8012 node src/server.js)"
     ],
     "deny": []
   }

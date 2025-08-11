@@ -40,6 +40,12 @@ CREATE TABLE users (
     gdp_pricing_tier INTEGER NOT NULL, -- 1-4 based on country GDP
     current_price_usd DECIMAL(10,2),
     subscription_expires_at TIMESTAMP,
+    subscription_plan VARCHAR(20) DEFAULT 'free' CHECK (subscription_plan IN ('free', 'basic', 'premium', 'ultimate')),
+    subscription_status VARCHAR(20) DEFAULT 'inactive' CHECK (subscription_status IN ('inactive', 'active', 'cancelled', 'expired')),
+    subscription_start TIMESTAMP,
+    subscription_end TIMESTAMP,
+    billing_cycle VARCHAR(10) CHECK (billing_cycle IN ('monthly', 'yearly')),
+    stripe_payment_intent_id VARCHAR(255),
     
     -- Account status
     is_active BOOLEAN DEFAULT TRUE,

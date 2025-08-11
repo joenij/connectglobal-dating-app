@@ -45,12 +45,26 @@ class User {
     const sql = `
       SELECT 
         id, email, phone_number, password_hash, first_name, last_name,
-        subscription_tier, is_active, is_banned, created_at
+        subscription_tier, is_active, is_banned, is_phone_verified, created_at
       FROM users 
       WHERE email = $1
     `;
 
     const result = await query(sql, [email]);
+    return result.rows[0] || null;
+  }
+
+  // Find user by phone number
+  static async findByPhone(phoneNumber) {
+    const sql = `
+      SELECT 
+        id, email, phone_number, password_hash, first_name, last_name,
+        subscription_tier, is_active, is_banned, is_phone_verified, created_at
+      FROM users 
+      WHERE phone_number = $1
+    `;
+
+    const result = await query(sql, [phoneNumber]);
     return result.rows[0] || null;
   }
 
@@ -127,19 +141,64 @@ class User {
   }
 
   // Update subscription
-  static async updateSubscription(userId, tier, expiresAt, price) {
-    const sql = `
-      UPDATE users 
-      SET 
-        subscription_tier = $1,
-        subscription_expires_at = $2,
-        current_price_usd = $3
-      WHERE id = $4
-      RETURNING subscription_tier, subscription_expires_at
-    `;
+  static async updateSubscription(userId, subscriptionData) {
+    // Support both old format (tier, expiresAt, price) and new format (object)
+    if (typeof subscriptionData === 'string') {
+      // Old format: updateSubscription(userId, tier, expiresAt, price)
+      const tier = subscriptionData;
+      const expiresAt = arguments[2];
+      const price = arguments[3];
+      
+      const sql = `
+        UPDATE users 
+        SET 
+          subscription_tier = $1,
+          subscription_expires_at = $2,
+          current_price_usd = $3
+        WHERE id = $4
+        RETURNING subscription_tier, subscription_expires_at
+      `;
 
-    const result = await query(sql, [tier, expiresAt, price, userId]);
-    return result.rows[0];
+      const result = await query(sql, [tier, expiresAt, price, userId]);
+      return result.rows[0];
+    } else {
+      // New format: updateSubscription(userId, subscriptionObject)
+      const {
+        subscription_plan,
+        subscription_status,
+        subscription_start,
+        subscription_end,
+        billing_cycle,
+        stripe_payment_intent_id
+      } = subscriptionData;
+
+      const sql = `
+        UPDATE users 
+        SET 
+          subscription_plan = $1,
+          subscription_status = $2,
+          subscription_start = $3,
+          subscription_end = $4,
+          billing_cycle = $5,
+          stripe_payment_intent_id = $6,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $7
+        RETURNING id, subscription_plan, subscription_status, subscription_start, subscription_end
+      `;
+
+      const values = [
+        subscription_plan,
+        subscription_status,
+        subscription_start,
+        subscription_end,
+        billing_cycle,
+        stripe_payment_intent_id,
+        userId
+      ];
+
+      const result = await query(sql, values);
+      return result.rows[0];
+    }
   }
 
   // Ban/unban user

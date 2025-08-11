@@ -21,6 +21,8 @@ const userRoutes = require('./routes/users');
 const matchingRoutes = require('./routes/matching');
 const messagingRoutes = require('./routes/messaging');
 const pricingRoutes = require('./routes/pricing');
+const paymentsRoutes = require('./routes/payments');
+const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
 
 // Create Express app
@@ -39,6 +41,9 @@ app.use(cors({
 // Request parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Static file serving for local uploads
+app.use('/uploads', express.static('backend/uploads'));
 
 // Security middleware
 app.use(sanitizeInput);
@@ -61,6 +66,8 @@ const API_PREFIX = `/api/${process.env.API_VERSION || 'v1'}`;
 app.use(`${API_PREFIX}/auth`, authRoutes);
 app.use(`${API_PREFIX}/users`, userRoutes);
 app.use(`${API_PREFIX}/matching`, matchingRoutes);
+app.use(`${API_PREFIX}/payments`, paymentsRoutes);
+app.use(`${API_PREFIX}/upload`, uploadRoutes);
 app.use(`${API_PREFIX}/messaging`, messagingRoutes);
 app.use(`${API_PREFIX}/pricing`, pricingRoutes);
 app.use(`${API_PREFIX}/admin`, adminRoutes);

@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { authRateLimit, authenticateToken } = require('../middleware/security');
 const User = require('../models/User');
+const TwilioService = require('../services/TwilioService');
 
 const router = express.Router();
 
@@ -274,5 +275,107 @@ function getGDPTier(countryCode) {
   
   return 3; // Default to tier 3 if country not found
 }
+
+// Send phone verification code
+router.post('/send-verification', [
+  authRateLimit,
+  body('phoneNumber').isMobilePhone().withMessage('Valid phone number required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { phoneNumber } = req.body;
+
+    // Check if phone number is already verified
+    const existingUser = await User.findByPhone(phoneNumber);
+    if (existingUser && existingUser.is_phone_verified) {
+      return res.status(400).json({ error: 'Phone number already verified' });
+    }
+
+    // Send verification code
+    const result = await TwilioService.sendVerificationCode(phoneNumber);
+    
+    // Store verification code temporarily (in production, use Redis or database)
+    global.verificationCodes = global.verificationCodes || {};
+    global.verificationCodes[phoneNumber] = {
+      code: result.verificationCode,
+      expiresAt: result.expiresAt,
+      attempts: 0
+    };
+
+    res.json({
+      success: true,
+      message: 'Verification code sent',
+      expiresAt: result.expiresAt
+    });
+
+  } catch (error) {
+    console.error('Send verification error:', error);
+    res.status(500).json({ error: 'Failed to send verification code' });
+  }
+});
+
+// Verify phone number
+router.post('/verify-phone', [
+  authRateLimit,
+  body('phoneNumber').isMobilePhone().withMessage('Valid phone number required'),
+  body('code').isLength({ min: 6, max: 6 }).withMessage('6-digit code required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { phoneNumber, code } = req.body;
+
+    // Check stored verification code
+    global.verificationCodes = global.verificationCodes || {};
+    const storedData = global.verificationCodes[phoneNumber];
+
+    if (!storedData) {
+      return res.status(400).json({ error: 'No verification code sent for this number' });
+    }
+
+    // Check expiration
+    if (new Date() > storedData.expiresAt) {
+      delete global.verificationCodes[phoneNumber];
+      return res.status(400).json({ error: 'Verification code expired' });
+    }
+
+    // Check attempts
+    if (storedData.attempts >= 3) {
+      delete global.verificationCodes[phoneNumber];
+      return res.status(400).json({ error: 'Too many failed attempts' });
+    }
+
+    // Verify code
+    if (storedData.code.toString() !== code.toString()) {
+      storedData.attempts++;
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
+
+    // Mark phone as verified
+    const user = await User.findByPhone(phoneNumber);
+    if (user) {
+      await User.updateProfile(user.id, { is_phone_verified: true });
+    }
+
+    // Clean up verification code
+    delete global.verificationCodes[phoneNumber];
+
+    res.json({
+      success: true,
+      message: 'Phone number verified successfully'
+    });
+
+  } catch (error) {
+    console.error('Phone verification error:', error);
+    res.status(500).json({ error: 'Failed to verify phone number' });
+  }
+});
 
 module.exports = router;
