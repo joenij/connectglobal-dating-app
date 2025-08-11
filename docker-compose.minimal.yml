@@ -1,0 +1,40 @@
+# Minimal ConnectGlobal Development Stack (0€ Budget)
+version: '3.8'
+
+services:
+  # Only essential services for beta testing
+  
+  # Redis Cache (Free)
+  redis:
+    image: redis:7-alpine
+    container_name: connectglobal-redis-minimal
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Basic Analytics (Optional - can be disabled)
+  plausible:
+    image: plausible/analytics:latest
+    container_name: connectglobal-analytics
+    environment:
+      BASE_URL: http://localhost:8001
+      SECRET_KEY_BASE: minimal-secret-key-for-development-only-not-production
+      DATABASE_URL: postgres://dummy:dummy@dummy:5432/dummy  # Will use SQLite internally
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+    profiles: ["analytics"]  # Optional service
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: connectglobal-minimal-network

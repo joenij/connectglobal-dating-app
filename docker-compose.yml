@@ -1,0 +1,214 @@
+# ConnectGlobal Open Source Development Stack
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: connectglobal-postgres
+    environment:
+      POSTGRES_DB: connectglobal_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./supabase/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: connectglobal-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO Object Storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: connectglobal-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Supabase (Open Source Firebase Alternative)
+  supabase-studio:
+    image: supabase/studio:latest
+    container_name: connectglobal-supabase-studio
+    environment:
+      SUPABASE_URL: http://localhost:8000
+      SUPABASE_REST_URL: http://localhost:8000/rest/v1/
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: connectglobal_dev
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PostgREST (Auto API from PostgreSQL)
+  postgrest:
+    image: postgrest/postgrest:latest
+    container_name: connectglobal-postgrest
+    environment:
+      PGRST_DB_URI: postgres://postgres:password@postgres:5432/connectglobal_dev
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: your-jwt-secret-at-least-32-characters-long
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    ports:
+      - "8000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Grafana (Open Source Analytics & Monitoring)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: connectglobal-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3002:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    restart: unless-stopped
+
+  # Prometheus (Monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: connectglobal-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+
+  # Jitsi Meet (Open Source Video Conferencing)
+  jitsi-web:
+    image: jitsi/web:latest
+    container_name: connectglobal-jitsi-web
+    environment:
+      ENABLE_LETSENCRYPT: 0
+      ENABLE_HTTP_REDIRECT: 0
+      DISABLE_HTTPS: 1
+      JICOFO_AUTH_USER: focus
+      XMPP_SERVER: prosody
+      XMPP_BOSH_URL_BASE: http://prosody:5280
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      PUBLIC_URL: http://localhost:8080
+    ports:
+      - "8080:80"
+    depends_on:
+      - prosody
+    restart: unless-stopped
+
+  # XMPP server for Jitsi
+  prosody:
+    image: jitsi/prosody:latest
+    container_name: connectglobal-prosody
+    environment:
+      AUTH_TYPE: internal
+      ENABLE_GUESTS: 1
+      XMPP_DOMAIN: meet.jitsi
+      XMPP_AUTH_DOMAIN: auth.meet.jitsi
+      XMPP_MUC_DOMAIN: muc.meet.jitsi
+      XMPP_INTERNAL_MUC_DOMAIN: internal-muc.meet.jitsi
+      XMPP_GUEST_DOMAIN: guest.meet.jitsi
+      JICOFO_COMPONENT_SECRET: jicofo-secret
+      JVB_AUTH_USER: jvb
+      JVB_AUTH_PASSWORD: jvb-password
+      JICOFO_AUTH_USER: focus
+      JICOFO_AUTH_PASSWORD: focus-password
+      TZ: UTC
+    volumes:
+      - prosody_config:/config
+      - prosody_plugins:/prosody-plugins-custom
+    restart: unless-stopped
+
+  # MeiliSearch (Open Source Search Engine)
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: connectglobal-meilisearch
+    environment:
+      MEILI_MASTER_KEY: your-master-key-here
+      MEILI_ENV: development
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    restart: unless-stopped
+
+  # Plausible Analytics (Privacy-focused Analytics)
+  plausible:
+    image: plausible/analytics:latest
+    container_name: connectglobal-plausible
+    environment:
+      BASE_URL: http://localhost:8001
+      SECRET_KEY_BASE: your-secret-key-base-here-64-chars-minimum
+      DATABASE_URL: postgres://postgres:password@postgres:5432/plausible_dev
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  grafana_data:
+  prometheus_data:
+  prosody_config:
+  prosody_plugins:
+  meilisearch_data:
+
+networks:
+  default:
+    name: connectglobal-network
