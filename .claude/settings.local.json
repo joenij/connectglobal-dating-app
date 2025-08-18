@@ -23,7 +23,11 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(timeout:*)",
-      "Bash(PORT=8012 node src/server.js)"
+      "Bash(PORT=8012 node src/server.js)",
+      "Bash(python:*)",
+      "Bash(find:*)",
+      "Bash(docker-compose:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

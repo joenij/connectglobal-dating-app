@@ -2,6 +2,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const RedisService = require('../services/RedisService');
 
 // Input sanitization middleware
 const sanitizeInput = (req, res, next) => {
@@ -110,16 +111,23 @@ const authenticateToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // Check if token is blacklisted (implement Redis blacklist)
-    // const isBlacklisted = await checkTokenBlacklist(token);
-    // if (isBlacklisted) {
-    //   return res.status(401).json({ error: 'Token has been revoked' });
-    // }
+    // KRITISCHE SICHERHEITSVERBESSERUNG: Token-Blacklisting mit Redis
+    const isBlacklisted = await RedisService.isTokenBlacklisted(token);
+    if (isBlacklisted) {
+      console.warn('Blocked blacklisted token attempt for user:', decoded.id);
+      return res.status(401).json({ error: 'Token has been revoked' });
+    }
 
     req.user = decoded;
+    req.token = token; // Für Logout-Funktion verfügbar machen
     next();
   } catch (error) {
-    return res.status(403).json({ error: 'Invalid or expired token' });
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    } else if (error.name === 'JsonWebTokenError') {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    return res.status(403).json({ error: 'Token validation failed' });
   }
 };
 

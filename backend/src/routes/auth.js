@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const { authRateLimit, authenticateToken } = require('../middleware/security');
 const User = require('../models/User');
 const TwilioService = require('../services/TwilioService');
+const RedisService = require('../services/RedisService');
 
 const router = express.Router();
 
@@ -298,13 +299,16 @@ router.post('/send-verification', [
     // Send verification code
     const result = await TwilioService.sendVerificationCode(phoneNumber);
     
-    // Store verification code temporarily (in production, use Redis or database)
-    global.verificationCodes = global.verificationCodes || {};
-    global.verificationCodes[phoneNumber] = {
-      code: result.verificationCode,
-      expiresAt: result.expiresAt,
-      attempts: 0
-    };
+    // SICHERHEITSVERBESSERUNG: Redis-basierte Speicherung statt global variable
+    const stored = await RedisService.storeVerificationCode(
+      phoneNumber, 
+      result.verificationCode, 
+      600 // 10 minutes
+    );
+
+    if (!stored) {
+      return res.status(500).json({ error: 'Failed to store verification code' });
+    }
 
     res.json({
       success: true,
@@ -332,29 +336,29 @@ router.post('/verify-phone', [
 
     const { phoneNumber, code } = req.body;
 
-    // Check stored verification code
-    global.verificationCodes = global.verificationCodes || {};
-    const storedData = global.verificationCodes[phoneNumber];
+    // SICHERHEITSVERBESSERUNG: Redis-basierte Verification statt global variable
+    const storedData = await RedisService.getVerificationCode(phoneNumber);
 
     if (!storedData) {
       return res.status(400).json({ error: 'No verification code sent for this number' });
     }
 
-    // Check expiration
-    if (new Date() > storedData.expiresAt) {
-      delete global.verificationCodes[phoneNumber];
+    // Check expiration (Redis TTL handles this, but double-check)
+    const codeAge = Date.now() - storedData.createdAt;
+    if (codeAge > 600000) { // 10 minutes
+      await RedisService.deleteVerificationCode(phoneNumber);
       return res.status(400).json({ error: 'Verification code expired' });
     }
 
     // Check attempts
     if (storedData.attempts >= 3) {
-      delete global.verificationCodes[phoneNumber];
+      await RedisService.deleteVerificationCode(phoneNumber);
       return res.status(400).json({ error: 'Too many failed attempts' });
     }
 
     // Verify code
     if (storedData.code.toString() !== code.toString()) {
-      storedData.attempts++;
+      await RedisService.incrementVerificationAttempts(phoneNumber);
       return res.status(400).json({ error: 'Invalid verification code' });
     }
 
@@ -365,7 +369,7 @@ router.post('/verify-phone', [
     }
 
     // Clean up verification code
-    delete global.verificationCodes[phoneNumber];
+    await RedisService.deleteVerificationCode(phoneNumber);
 
     res.json({
       success: true,
@@ -375,6 +379,35 @@ router.post('/verify-phone', [
   } catch (error) {
     console.error('Phone verification error:', error);
     res.status(500).json({ error: 'Failed to verify phone number' });
+  }
+});
+
+// SICHERHEITSVERBESSERUNG: Sichere Logout-Funktion mit Token-Blacklisting
+router.post('/logout', authenticateToken, async (req, res) => {
+  try {
+    const token = req.token;
+    const decoded = req.user;
+
+    // Token auf Blacklist setzen für die verbleibende Zeit
+    const tokenExp = decoded.exp;
+    const currentTime = Math.floor(Date.now() / 1000);
+    const remainingSeconds = tokenExp - currentTime;
+
+    if (remainingSeconds > 0) {
+      const blacklisted = await RedisService.blacklistToken(token, remainingSeconds);
+      if (!blacklisted) {
+        console.error('Failed to blacklist token on logout');
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Logout failed' });
   }
 });
 
