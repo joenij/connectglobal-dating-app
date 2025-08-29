@@ -64,10 +64,12 @@ class TestDataService {
     
     return {
       email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${index}@testuser.com`,
+      phone_number: `+49151${String(Math.floor(Math.random() * 90000000) + 10000000)}`, // German mobile format
       password: 'TestPassword123!',
       firstName,
       lastName,
-      age: 20 + (index % 15), // Ages 20-34
+      dateOfBirth: new Date(2004 - (index % 15), Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1), // Ages 20-34
+      gender: index % 2 === 0 ? 'male' : 'female',
       bio,
       city: city.name,
       country: city.country,
@@ -143,8 +145,8 @@ class TestDataService {
     }
 
     try {
-      // First, clear existing test users
-      await query('DELETE FROM users WHERE is_test_user = true');
+      // First, clear existing test users (use cultural_background to identify test users)
+      await query('DELETE FROM users WHERE cultural_background @> \'{"isTestUser": true}\'');
       
       EnterpriseLogger.info('Creating test users', null, { count });
 
@@ -154,17 +156,16 @@ class TestDataService {
         
         const result = await query(`
           INSERT INTO users (
-            email, password_hash, first_name, last_name, age, bio, city, country,
-            latitude, longitude, interests, verified, profile_complete, is_test_user,
-            created_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            email, phone_number, password_hash, first_name, last_name, date_of_birth, gender, 
+            city, country_code, coordinates, primary_language, cultural_background,
+            gdp_pricing_tier, is_email_verified, is_phone_verified, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ST_MakePoint($10, $11), $12, $13, $14, $15, $16, $17)
           RETURNING id
         `, [
-          testUser.email, hashedPassword, testUser.firstName, testUser.lastName,
-          testUser.age, testUser.bio, testUser.city, testUser.country,
-          testUser.latitude, testUser.longitude, testUser.interests,
-          testUser.verified, testUser.profileComplete, testUser.isTestUser,
-          testUser.createdAt
+          testUser.email, testUser.phone_number, hashedPassword, testUser.firstName, testUser.lastName,
+          testUser.dateOfBirth, testUser.gender, testUser.city, testUser.country,
+          testUser.longitude, testUser.latitude, 'de', JSON.stringify({interests: testUser.interests, isTestUser: true}),
+          1, false, false, testUser.createdAt
         ]);
         
         testUser.id = result.rows[0].id;
@@ -232,8 +233,8 @@ class TestDataService {
     }
 
     try {
-      await query('DELETE FROM user_matches WHERE user1_id IN (SELECT id FROM users WHERE is_test_user = true) OR user2_id IN (SELECT id FROM users WHERE is_test_user = true)');
-      await query('DELETE FROM users WHERE is_test_user = true');
+      await query('DELETE FROM user_matches WHERE user1_id IN (SELECT id FROM users WHERE cultural_background @> \'{"isTestUser": true}\') OR user2_id IN (SELECT id FROM users WHERE cultural_background @> \'{"isTestUser": true}\')');
+      await query('DELETE FROM users WHERE cultural_background @> \'{"isTestUser": true}\'');
       
       this.testUsers = [];
       
