@@ -1,17 +1,50 @@
 const { Pool } = require('pg');
+const EnterpriseLogger = require('../services/EnterpriseLoggerService');
 
-// Database configuration
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'connectglobal_dev',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'password',
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  max: 20, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+// Environment-based database configuration
+const getEnvironment = () => {
+  return process.env.NODE_ENV || 'development';
 };
+
+// Database configurations for all environments
+const dbConfigs = {
+  development: {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'connectglobal_dev',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    ssl: false,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  },
+  test: {
+    host: process.env.TEST_DB_HOST || process.env.DB_HOST || 'localhost',
+    port: process.env.TEST_DB_PORT || process.env.DB_PORT || 5432,
+    database: process.env.TEST_DB_NAME || 'connectglobal_test',
+    user: process.env.TEST_DB_USER || process.env.DB_USER || 'postgres',
+    password: process.env.TEST_DB_PASSWORD || process.env.DB_PASSWORD || 'password',
+    ssl: false,
+    max: 5,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 1000,
+  },
+  production: {
+    host: process.env.PROD_DB_HOST || process.env.DB_HOST || 'localhost',
+    port: process.env.PROD_DB_PORT || process.env.DB_PORT || 5432,
+    database: process.env.PROD_DB_NAME || 'connectglobal_prod',
+    user: process.env.PROD_DB_USER || process.env.DB_USER || 'postgres',
+    password: process.env.PROD_DB_PASSWORD || process.env.DB_PASSWORD || 'password',
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  }
+};
+
+// Get current environment config
+const dbConfig = dbConfigs[getEnvironment()];
 
 // Create connection pool
 const pool = new Pool(dbConfig);
@@ -20,11 +53,19 @@ const pool = new Pool(dbConfig);
 const testConnection = async () => {
   try {
     const client = await pool.connect();
-    console.log('✅ Database connected successfully');
+    EnterpriseLogger.info('Database connected successfully', null, {
+      environment: getEnvironment(),
+      host: dbConfig.host,
+      database: dbConfig.database,
+      ssl: !!dbConfig.ssl
+    });
     client.release();
     return true;
   } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
+    EnterpriseLogger.error('Database connection failed', error, {
+      host: dbConfig.host,
+      database: dbConfig.database
+    });
     return false;
   }
 };
@@ -34,11 +75,14 @@ const initializeDatabase = async () => {
   const isConnected = await testConnection();
   
   if (!isConnected) {
-    console.log('📝 Database connection tips:');
-    console.log('1. Make sure PostgreSQL is installed and running');
-    console.log('2. Create database: createdb connectglobal_dev');
-    console.log('3. Update .env file with correct credentials');
-    console.log('4. Run schema: psql -d connectglobal_dev -f backend/database/schema.sql');
+    EnterpriseLogger.info('Database connection tips', null, {
+      tips: [
+        'Make sure PostgreSQL is installed and running',
+        'Create database: createdb connectglobal_dev',
+        'Update .env file with correct credentials',
+        'Run schema: psql -d connectglobal_dev -f backend/database/schema.sql'
+      ]
+    });
   }
   
   return isConnected;
@@ -50,11 +94,17 @@ const query = async (text, params) => {
   try {
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('📊 Query executed', { text: text.substring(0, 50) + '...', duration, rows: result.rowCount });
+    EnterpriseLogger.debug('Query executed', null, {
+      query: text.substring(0, 50) + '...',
+      duration,
+      rows: result.rowCount
+    });
     return result;
   } catch (error) {
-    console.error('❌ Query error:', error.message);
-    console.error('Query:', text);
+    EnterpriseLogger.error('Query error', error, {
+      query: text,
+      message: error.message
+    });
     throw error;
   }
 };
@@ -78,7 +128,9 @@ const transaction = async (callback) => {
 // Graceful shutdown
 const closeDatabase = async () => {
   await pool.end();
-  console.log('🔌 Database connection pool closed');
+  EnterpriseLogger.info('Database connection pool closed', null, {
+    action: 'graceful_shutdown'
+  });
 };
 
 module.exports = {

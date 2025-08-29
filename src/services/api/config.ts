@@ -1,8 +1,14 @@
-// API Configuration
+// API Configuration with Environment Support
+import { getCurrentEnvConfig, buildApiUrl } from './environment';
+
+const envConfig = getCurrentEnvConfig();
+
 export const API_CONFIG = {
-  BASE_URL: 'http://localhost:8003', // Using the working backend server
+  BASE_URL: envConfig.API_BASE_URL,
   API_VERSION: 'v1',
-  TIMEOUT: 10000,
+  TIMEOUT: envConfig.TIMEOUT,
+  DEBUG_MODE: envConfig.DEBUG_MODE,
+  LOG_LEVEL: envConfig.LOG_LEVEL,
   ENDPOINTS: {
     AUTH: {
       REGISTER: '/auth/register',
@@ -35,5 +41,15 @@ export const API_CONFIG = {
 };
 
 export const getApiUrl = (endpoint: string) => {
-  return `${API_CONFIG.BASE_URL}/api/${API_CONFIG.API_VERSION}${endpoint}`;
+  return buildApiUrl(endpoint);
 };
+
+// Log API configuration for debugging
+if (API_CONFIG.DEBUG_MODE) {
+  console.log('🌐 ConnectGlobal API Configuration:', {
+    baseUrl: API_CONFIG.BASE_URL,
+    timeout: API_CONFIG.TIMEOUT,
+    debugMode: API_CONFIG.DEBUG_MODE,
+    sampleEndpoint: getApiUrl('/health')
+  });
+}
